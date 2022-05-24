@@ -1,0 +1,14 @@
+Python based tool for processing CTE learn mode audit logs and
+generating security policies.
+
+
+usage: lm [-h] [--logdir LOGDIR] {log,policy} ...
+
+positional arguments:
+  {log,policy}
+    log            cte learn mode logs
+    policy         learn mode policy updates
+
+optional arguments:
+  -h, --help       show this help message and exit
+  --logdir LOGDIR  log directory, defaults to /var/log/vormetric

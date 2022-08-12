@@ -92,14 +92,18 @@ class Resource(PolicyItem):
 
 
 class Process(PolicyItem):
-    def __init__(self, process, pareninfo):
+    def __init__(self, process, parentinfo):
         super(Process, self).__init__(process['name'])
+        self.uid = process['uid']
+        self.euid = process['euid']
+        self.parentinfo = parentinfo
 
 
 class User(PolicyItem):
     def __init__(self, user, process, parentinfo):
         super(User, self).__init__(user['name'])
         self.uid = user['uid']
+        self.authenticated = user['authenticated']
         self.euid = user['euid']
         self.gid = user['gid']
         self.fakedas = set(user['fakedas']) if user['fakedas'] else set()
@@ -200,6 +204,7 @@ class LogModel:
         self.log = Log()
         self.lastlog_ino = None
         self.lastlog_size = None
+        self.size = 0
 
     def update(self, policy, user, parentinfo, process, resource, action):
         # update internal model
@@ -211,7 +216,11 @@ class LogModel:
         act = self.action_cache[Action(action)]
         logentryinfo = self.log[pol][usr][prc][res][act]
         logentryinfo.count += 1
+        self.size += 1
         return True
+
+    def get_size(self):
+        return self.size    
 
     def iter_policy_names(self):
         for policy in self.log.keys():

@@ -4,9 +4,8 @@ import os
 import re
 import pickle
 import time
-
+import sys
 from logmodel import LogModel
-import debug
 
 # regex for parsing learn mode and audit log lines
 logline_regex = re.compile(r'''
@@ -83,7 +82,7 @@ logline_regex = re.compile(r'''
 ''', re.X)
 
 
-def parse_log_line(log_line, logmodel):
+def parse_log_line(log_line:str, logmodel:LogModel):
     match = logline_regex.match(log_line)
     if match is None:
         return False
@@ -131,66 +130,15 @@ def parse_log_line(log_line, logmodel):
     # update internal model
     return logmodel.update(policy, user, parentinfo, process, resource, action)
 
-def process_logs_sp(logfiles:[], logs_size:int, firstlog_offset:int, logmodel:LogModel):
-    rejfile = None
-    rejfilename = f'/tmp/lmskip.{os.getpid()}'
-    matched = 0
-    skipped = 0
-    processed_size = 0
-    print_status = True
-    print_time = time.time()
-    for logno, logfile in enumerate(logfiles):
-        with open(logfile, 'r', newline='') as lf:
-            if logno == 0 and firstlog_offset:
-                ''' start from saved log info '''
-                lf.seek(firstlog_offset)
-            for line in lf:
-                if print_status:
-                    print(f'[{round(processed_size*100/logs_size):3d}%] Processing log file {logno+1}/{len(logfiles)} : {logfile}', end='\r')
-                    print_time = time.time()
-                    print_status = False
-                if parse_log_line(line, logmodel) is True:
-                    matched = matched + 1
-                else:
-                    skipped = skipped + 1
-                    # save rejected lines for investigation
-                    if rejfile is None:
-                        rejfile =  open(rejfilename, 'wt')
-                    rejfile.write(line)
-                processed_size += len(line)
-                if time.time() - print_time >= 2:
-                    print_status = True
-            print_status = True
-            lf.close()
-    print(f'[{round(processed_size*100/logs_size):3d}%] Processing log file {logno+1}/{len(logfiles)} : {logfile}', end='\r')
-    # save last log
-    stinfo = os.stat(logfile)
-    logmodel.lastlog_ino = stinfo.st_ino
-    logmodel.lastlog_size = stinfo.st_size
-    print(f'\nLearn mode log entries: {matched}')
-    if skipped > 0:
-          print(f'Other log entries: {skipped}, saved to {rejfilename}')
-    if rejfile:
-        rejfile.close()
-
-''' TODO multiprocess log procesing '''
-def log_worker(log:str, wstart:int, wsize:int):
-    global worker_logmodel
-    worker_logmodel = LogModel()
-
-    matched = 0
-    skipped = 0
-    with open(log, 'r') as lf:
-        lf.seek(wstart)
-        lines = lf.read(wsize).splitlines()
-        for line in lines:
-            if parse_log_line(line, worker_logmodel):
-                matched = matched + 1
-            else:
-                skipped = skipped + 1
-    return os.getpid(),matched,skipped
-
-def log_work(logfiles:[], maxworksize=10*1024*1024):
+def log_work(logfiles:[], logs_size, maxworksize=32*1024*1024):
+    """A generator that returns a block of text of max size maxworksize
+    
+    Keyword arguments:
+    logfiles -- a list of the new logs needed to be processed
+    maxworksize -- the max size (in bytes)each log_worker can 
+    be assigned (default 32 * 1024 * 1024)
+    """
+    curr_size = 0
     for log in logfiles:
         logend = os.path.getsize(log)
         with open(log, 'rb') as logf:
@@ -200,25 +148,98 @@ def log_work(logfiles:[], maxworksize=10*1024*1024):
                 logf.seek(min(maxworksize, logend - workstart), 1)
                 logf.readline()
                 workend = logf.tell()
-                yield log, workstart, workend - workstart
+                curr_size += (logend - workstart)
+                yield [log, workstart, workend - workstart, curr_size, logs_size]
 
-def process_logs_mp(logfiles:[], logmodel:LogModel):
-    workpool = mp.Pool(mp.cpu_count())
-    jobs = []
-    for log,wstart,wsize in log_work(logfiles):
-        jobs.append(workpool.apply_async(log_worker,(log,wstart,wsize)))
-    #map(logmodel.update, [_.get() for _ in jobs])A
+def log_worker(loginfo:[]) -> []:
+    """The "worker" function that each child process runs.
+    Goes line by line, parsing each and then updating an 
+    intermediate logmodel.
+    
+    Keyword arguments:
+    loginfo -- a list containing the logfile name, 
+    where to start reading, as well as how much to read
+
+    Returns:
+    A LogModel and a list of skipped lines
+    """
+    skipped = []
+    logmodel = LogModel()
+    logfile, wstart, wsize, curr_size, logs_size = loginfo
+    with open(logfile, 'r') as lf:
+        lf.seek(wstart)
+        sys.stdout.flush()
+        lines = lf.read(wsize).splitlines()
+        for line in lines:
+            if parse_log_line(line, logmodel):
+                pass
+            else:
+                skipped.append(line)
+    return [logmodel, skipped]
+
+def process_logs_mp(logfiles:[], logmodel:LogModel, logs_size) -> LogModel:
+    """The main processing function where the multiprocessing happens.
+    It creates a workpool and maps each result from log_work(). 
+    Then updates logmodel with the results from log_worker
+    and saves skipped lines to a separate file.
+
+    Keyword arguments:
+    logfiles -- a list of the new logfiles that need to be processed
+    logmodel -- the logmodel that needs to be updated
+
+    Returns:
+    The updated logmodel
+    """
+    pool_size = mp.cpu_count() if mp.cpu_count() < 8 else 8
+    ts = 0
     tm = 0
-    for job in jobs:
-        p,m,s = job.get()
-        tm += m
-    print(tm)
-
+    workpool = mp.Pool(pool_size)
+    jobs = workpool.map_async(log_worker, log_work(logfiles, logs_size))
+    totaljobs = jobs._number_left
+    rejfile = None
+    rejfilename = f'/tmp/lmskip.{os.getpid()}'
     workpool.close()
-''' END TODO '''
+    while not jobs.ready():
+        print(f'[1/2] Parsing logs files[{round((totaljobs-jobs._number_left)*100/totaljobs):3d}%]', end='\r')
+        time.sleep(0.5)
+    workpool.join()
+    results = jobs.get()
+    for i in range(len(results)):
+        print(f'[2/2] Updating log model [{round((i+1)*100/len(results)):3d}%]', end='\r')
+        lm, skipped = results[i]
+        # go through each logmodel entry and update the original logmodel
+        for pk, pv in lm.log.items():
+            for uk, uv in pv.items():
+                user = {'name':uk.name, 'uid':uk.uid, 
+                        'authenticated':uk.authenticated, 
+                        'fakedas':uk.fakedas, 'euid':uk.euid, 'gid':uk.gid}
+                for psk, psv in uv.items():
+                    process = {'name':psk.name, 'uid':psk.uid, 'euid':psk.euid}
+                    for rk, rv in psv.items():
+                        for a in rv.keys():
+                            logmodel.update(pk, user, psk.parentinfo, process, rk, a)
+                            tm += 1
+        # save skipped entries in a separate file
+        for skip in skipped:
+            if rejfile is None:
+                rejfile = open(rejfilename, 'wt')
+            rejfile.write(skip)
+            ts += 1
+    if rejfile:
+        rejfile.close()
+    stinfo = os.stat(logfiles[-1])
+    logmodel.lastlog_size = stinfo.st_size
+    print("Successfully parsed all log files")
+    if ts > 0:
+        print(f'Other log entries: {ts}, saved to {rejfilename}')
+    return logmodel
 
 def load_logmodel(dirpath:str) -> (bool,LogModel,float):
-    if os.path.isdir(dirpath) is False:
+    """
+    loads saved logmodel from a .logmodel.bin file or 
+    returns a new one if there is no saved logmodel
+    """
+    if not os.path.isdir(dirpath):
         print(f'Invalid directory path {dirpath}')
         return None,None,None
     lmfilepath = dirpath + '/.logmodel.bin'
@@ -236,7 +257,8 @@ def load_logmodel(dirpath:str) -> (bool,LogModel,float):
     return loaded,logmodel,lmfile_mtime
 
 def save_logmodel(dirpath:str, logmodel:LogModel):
-    if os.path.isdir(dirpath) is False:
+    """saves the logmodel at dirpath"""
+    if not os.path.isdir(dirpath):
         print(f'Invalid directory path {dirpath}')
         return None,None,None
     lmfilepath = dirpath + '/.logmodel.bin'
@@ -254,7 +276,8 @@ def size2str(size:float):
         return f'{size/float(1<<20):,.2f} MB'
 
 def get_logfiles(dirpath:str) -> []:
-    if os.path.isdir(dirpath) is False:
+    """gets all logmodel files in specified dirpath directory"""
+    if not os.path.isdir(dirpath):
         print(f'Invalid directory path {dirpath}')
         return None
     logfiles = glob.glob(dirpath + '/vorvmd_root.log*')
@@ -264,6 +287,7 @@ def get_logfiles(dirpath:str) -> []:
     return logfiles
 
 def get_newlogs(dirpath:str):
+    """gets all new logs from dirpath directory"""
     logfiles = get_logfiles(dirpath)
     if logfiles is None:
         return None,None,None,None,None
@@ -276,9 +300,11 @@ def get_newlogs(dirpath:str):
         if len(newlogfiles) > 0:
             newlogfiles.sort(key = os.path.getmtime)
             for logno,logfile in enumerate(newlogfiles):
-                if logno == 0 and logmodel.lastlog_ino and logmodel.lastlog_size:
+                if (logno == 0 and logmodel.lastlog_ino and 
+                    logmodel.lastlog_size):
                     stinfo = os.stat(logfile)
-                    if stinfo.st_ino == logmodel.lastlog_ino and stinfo.st_size > logmodel.lastlog_size:
+                    if (stinfo.st_ino == logmodel.lastlog_ino and 
+                        stinfo.st_size > logmodel.lastlog_size):
                         logs_size += stinfo.st_size - logmodel.lastlog_size
                         firstlog_offset = logmodel.lastlog_size
                         continue
@@ -289,6 +315,7 @@ def get_newlogs(dirpath:str):
     return newlogfiles,logs_size,firstlog_offset,lmfile_mtime,logmodel
 
 def log_status(dirpath:str):
+    """prints how many new logs there are to be processed"""
     newlogfiles,logs_size,_,after_mtime,_ = get_newlogs(dirpath)
     if newlogfiles is None:
         return
@@ -301,6 +328,7 @@ def log_status(dirpath:str):
                 end=f' since {time.ctime(after_mtime)}\n' if after_mtime else '.\n')
 
 def process_log_files(dirpath:str):
+    """main function that handles the processing of log files"""
     newlogfiles,logs_size,firstlog_offset,after_mtime,logmodel = get_newlogs(dirpath)
     if newlogfiles is None:
         return
@@ -308,5 +336,5 @@ def process_log_files(dirpath:str):
         print(f'No new log entries in {dirpath}',
                 end=f' since {time.ctime(after_mtime)}\n' if after_mtime else '.\n')
         return
-    process_logs_sp(newlogfiles,logs_size,firstlog_offset,logmodel)
+    logmodel = process_logs_mp(newlogfiles,logmodel,logs_size)
     save_logmodel(dirpath, logmodel)

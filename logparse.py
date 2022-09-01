@@ -6,6 +6,7 @@ import pickle
 import time
 import sys
 from logmodel import LogModel
+import json
 
 # regex for parsing learn mode and audit log lines
 logline_regex = re.compile(r'''
@@ -234,6 +235,25 @@ def process_logs_mp(logfiles:[], logmodel:LogModel, logs_size) -> LogModel:
         print(f'Other log entries: {ts}, saved to {rejfilename}')
     return logmodel
 
+def splunk_jsonify(logmodel, dirpath):
+    """jsonifies logs to match the fields supported in splunk"""
+    filePath = dirpath + "/output.json"
+    with open(filePath, "w") as outfile: 
+        for pk, pv in logmodel.log.items():
+            for uk, uv in pv.items():
+                for psk, psv in uv.items():
+                    for rk, rv in psv.items():
+                        for a in rv.keys():
+                            temp = {"pol":str(pk.name),
+                                    "user":uk.name,
+                                    "sproc":psk.name,
+                                    "filepath":str(rk.name),
+                                    "act":str(a.name),
+                                    "count":int(str(rv[a]))}
+                            json.dump(temp, outfile)
+                            outfile.write('\n')
+    print(f'Log output saved as JSON at {filePath}')
+
 def load_logmodel(dirpath:str) -> (bool,LogModel,float):
     """
     loads saved logmodel from a .logmodel.bin file or 
@@ -338,3 +358,4 @@ def process_log_files(dirpath:str):
         return
     logmodel = process_logs_mp(newlogfiles,logmodel,logs_size)
     save_logmodel(dirpath, logmodel)
+    splunk_jsonify(logmodel,dirpath)

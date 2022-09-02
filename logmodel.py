@@ -36,7 +36,7 @@ class PolicyItemFilter:
         self.filter = re.compile(self.filter_str if filter_str else '.')
 
     def match(self, item):
-        return self.filter.search(item.name)
+        return self.filter.search(str(item.name))
 
 
 class Action(PolicyItem):
@@ -224,7 +224,7 @@ class LogModel:
 
     def iter_policy_names(self):
         for policy in self.log.keys():
-            yield policy.name
+            yield str(policy.name)
 
     def iter_byproc(self, policy:Policy):
         for uk,uv in self.log[policy].items():

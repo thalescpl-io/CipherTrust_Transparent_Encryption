@@ -23,7 +23,7 @@ def get_secfsd_guardpoints(policy_name:str=None):
             else:
                 print(errs)
 
-    for gpline in all_gps:
+    for gpline in all_gps or ():
         gp,policy  = gpline.split()[0:2]
         if policy_name and policy_name != policy:
             continue

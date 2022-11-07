@@ -218,8 +218,9 @@ def process_logs_mp(logfiles:[], logmodel:LogModel, logs_size) -> LogModel:
                     process = {'name':psk.name, 'uid':psk.uid, 'euid':psk.euid}
                     for rk, rv in psv.items():
                         for a in rv.keys():
-                            logmodel.update(pk, user, psk.parentinfo, process, rk, a)
+                            logmodel.update(pk.name, user, psk.parentinfo, process, rk.name, a.name)
                             tm += 1
+
         # save skipped entries in a separate file
         for skip in skipped:
             if rejfile is None:

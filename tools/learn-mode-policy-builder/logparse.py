@@ -27,7 +27,7 @@ logline_regex = re.compile(r'''
     Policy\[(?P<POLICY>[\w-]+)\]        # Policy [policy-learnmode]
     \s+
     User\[(?P<USER>                     # User [...
-      (?P<UNAME>\w+),                     # user name
+      (?P<UNAME>[\w-]+),                  # user name
       uid=(?P<UID>\d+),                   # uid
       (
       (?P<NOAUTH>                         # user not autenticated

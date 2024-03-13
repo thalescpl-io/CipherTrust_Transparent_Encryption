@@ -22,8 +22,8 @@ def show_policy(policy_name:str, mode:str, lm:LogModel):
         LMPolicyUpdate(name=polname, mode=mode, lm=lm).print()
 
 def upload_policy(policy_name:str, mode:str, lm:LogModel,
-                  upload_name:str, cmip:str, cmuser:str, cmpass:str):
-    if cmapi_init(cmip, cmuser, cmpass) is False:
+                  upload_name:str, cmip:str, cmuser:str, cmpass:str, cmdomain:str):
+    if cmapi_init(cmip, cmuser, cmpass, cmdomain) is False:
         return
     srcpol = CMPolicy(policy_name)
     if srcpol.policy is None:
@@ -110,6 +110,9 @@ if __name__ == "__main__":
     policy_upload.add_argument('--password',
                                type=str,
                                help='CM account password')
+    policy_upload.add_argument('--domain',
+                               type=str,
+                               help='CM domain')
 
     args = ap.parse_args()
 
@@ -146,11 +149,12 @@ if __name__ == "__main__":
         elif args.policy_cmd == 'show':
             show_policy(args.policy_name, args.type, lm_model)
         elif args.policy_cmd == 'upload':
+            cmdomain = args.domain if args.domain else input('Domain:')
             cmip = args.cmaddr if args.cmaddr else input('CM address:')
             cmuser = args.username if args.username else input('Username:')
             cmpass = args.password if args.password else getpass('Password:')
             upload_policy(args.policy_name, args.type, lm_model,
-                          args.upload_name, cmip, cmuser, cmpass)
+                          args.upload_name, cmip, cmuser, cmpass, cmdomain)
         else:
             policy.print_help()
             sys.exit(1)

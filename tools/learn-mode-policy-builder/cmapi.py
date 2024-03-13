@@ -15,7 +15,7 @@ class CMCommandException(RequestException):
 
 
 class CMToken:
-    def __init__(self, ip, user, password):
+    def __init__(self, ip, user, password, domain):
         try:
             if disable_cert_warnings:
                 urllib3.disable_warnings()
@@ -33,11 +33,11 @@ class CMToken:
             raise CMCommandException(re)
 
 
-def cmapi_init(cmip:str, cmuser:str, cmpass:str):
+def cmapi_init(cmip:str, cmuser:str, cmpass:str, cmdomain:str):
     global cmtoken
 
     try:
-        cmtoken = CMToken(cmip, cmuser, cmpass)
+        cmtoken = CMToken(cmip, cmuser, cmpass, cmdomain)
     except CMCommandException as e:
         print(f'Failed to connect to CM {cmip}')
         print(e)

@@ -216,6 +216,12 @@ After the logs are processed by the Learn Mode policy builder tools, following p
 
 * To upload the policy to the CipherTrust Manager, run the command:
 
-        ./lmpb --logdir /home/logs/logs/ora policy upload --policy-name LEARMODE --type user --upload-name learn-mode-policy --cmaddr IP-ADDR-OF-CM --username admin --password PASSWORD
+        ./lmpb --logdir /home/logs/logs/ora policy upload --policy-name LEARMODE --type user --upload-name learn-mode-policy --domain domainname --cmaddr IP-ADDR-OF-CM --username admin --password PASSWORD
+
+**Sample Output**
+./lmpb policy upload --policy-name learnMode --type user --upload-name LearnMode --domain root --cmaddr IP-ADDR-OF-CM --username admin --password password
+
+Uploading learn mode policy updates for learnMode using name LearnMode
+
 
 The above command will upload a policy to the CipherTrust Manager with modifications on top of the original policy suggested by the Learn Mode policy builder tool. Note that the above command will fail if the original policy is not found on the specified CipherTrust Manager.

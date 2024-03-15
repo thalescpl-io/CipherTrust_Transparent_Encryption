@@ -113,8 +113,8 @@ policy show can be done based on user or process, by default it is user based
 ./lmpb --logdir /home/logs/logs/ubu0/ policy show --type process
 
 To upload policy to CM, use below command
-./lmpb --logdir /home/logs/logs/ora policy upload --policy-name LEARMODE --type user --upload-name learn-mode-policy --cmaddr IP-ADDR-OF-CM --username admin --password PASSWORD
+./lmpb --logdir /home/logs/logs/ora policy upload --policy-name LEARMODE --type user --upload-name learn-mode-policy --domain domainname --cmaddr IP-ADDR-OF-CM --username admin --password PASSWORD
 
-Take Note that the policy that the user wants to upload with modifications from learn-mode-tool must already exist with some security rules on the specified CM
+Take Note that the policy that the user wants to upload with modifications from learn-mode-tool must already exist with some security rules on the specified CM. Here "domain" is the name of domain to which the policy has to be pushed.
 
 To collect logs that can be processed by learn-mode-tool, while creating policy on the CM, enable learn-mode toggle on the CM
